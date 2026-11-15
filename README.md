@@ -31,6 +31,16 @@ docker compose exec -T backend python -m scripts.seed_demo
 7. 不收敛时调整兼容目标或上限，保留失败和诊断；负责人不能批准不收敛结果。
 8. 负责人记录适用范围并批准，阅读者下载完整权重CSV；记录关联输入SHA256。
 
+机构更换区划后（如“西区补采研究”批仍是2019旧区口径目标），负责人在“区划换算”页登记相邻版本的拆并比例，生成换算草案并核对原始→现行区划的人数矩阵，确认人口守恒后一键发布整套目标；此后该校准批次才与现样本对得上。
+
+## 区划版本换算口径
+
+实现位置 `backend/src/services/division_math.py`（纯计算）与 `backend/src/services/division_service.py`（持久化与并发）。
+
+1. 版本为节点、相邻版本拆并比例为有向边；换算沿起止版本间每条简单路径逐级传播，全程浮点不取整，仅展示保留两位小数。每条用到的映射中，同一旧区划的去向比例合计必须为1，人口总量严格守恒。
+2. 同一起止版本经不同路径结果不一致、映射存在循环、区划缺少去向或比例不守恒时，换算被拒绝并逐条列出涉及区划/版本。
+3. 草案指纹覆盖所用比例行（含修订号）：修订任一中间比例后，依赖它的草案立即失效；新增映射改变了起止版本间路径集时同样失效。发布在事务内对比例行加锁重算指纹，与修订并发时不混用新旧比例；发布只整套替换目标边际（分区换为现行口径、其余维度原样），历史校准运行与诊断快照保持不变。
+
 ## 真实计算口径
 
 实现位置 `backend/src/services/raking_algorithm.py`。
@@ -44,11 +54,11 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 ## 页面与结构
 
-六个研究页面：总览、样本底册、目标边际、校准配置/记录、诊断结果、复核交付（含有权角色的审计）。BatchSelect、RunTable、CalibrationSummary、MarginTable跨页复用；PageHeading/ErrorNotice/StatusBadge为公共组件；useTask/usePolling与格式工具共享。初始3批共1280条样本、27个目标格、一个实际计算的初始运行及获批记录，种子73/74/75。
+七个研究页面：总览、样本底册、目标边际、校准配置/记录、区划换算、诊断结果、复核交付（含有权角色的审计）。BatchSelect、RunTable、CalibrationSummary、MarginTable跨页复用；PageHeading/ErrorNotice/StatusBadge为公共组件；useTask/usePolling与格式工具共享。初始3批共1280条样本、27个目标格（“西区补采研究”为2019旧区口径，待换算发布）、3个区划版本与2组拆并比例、一个实际计算的初始运行及获批记录，种子73/74/75。
 
 前端：`src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`；后端：`src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}`；种子在`backend/scripts/seed_demo.py`，结构约束见`backend/migrations/001_schema.md`。测试、截图和TESTING只在批次`test-artifacts/gb-0015/`。
 
-共享枚举Role/RunStatus/Dimension后端在`backend/src/constants/enums.py`，前端在`frontend/src/constants/enums.ts`；角色认证在middlewares/auth、auth store；状态用于run_service/worker/StatusBadge；Dimension用于target schema、raking维度与目标页。数据库字段采用相同枚举字符串。
+共享枚举Role/RunStatus/Dimension/DraftStatus后端在`backend/src/constants/enums.py`，前端在`frontend/src/constants/enums.ts`；角色认证在middlewares/auth、auth store；状态用于run_service/worker/StatusBadge；Dimension用于target schema、raking维度与目标页；DraftStatus用于换算草案流转。数据库字段采用相同枚举字符串。
 
 ## 环境与开发
 

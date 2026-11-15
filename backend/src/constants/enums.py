@@ -12,3 +12,7 @@ class Dimension(StrEnum):
     ZONE='zone'
     AGE_BAND='age_band'
     MODE='mode'
+class DraftStatus(StrEnum):
+    DRAFT='draft'
+    STALE='stale'
+    PUBLISHED='published'

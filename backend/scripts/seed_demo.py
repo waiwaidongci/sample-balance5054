@@ -1,7 +1,7 @@
 import random
 from sqlalchemy import select,func
 from src.config.database import Base,engine,SessionLocal
-from src.models import User,SampleBatch,SampleUnit,MarginTarget,WeightRun,WeightReview
+from src.models import User,SampleBatch,SampleUnit,MarginTarget,WeightRun,WeightReview,DivisionVersion,DivisionRatio,ConversionDraft
 from src.utils.security import hash_password
 from src.services.run_service import compute
 
@@ -11,6 +11,18 @@ def seed():
         for role,name in [('admin','周衡 · 抽样负责人'),('analyst','陈野 · 交通分析师'),('viewer','陆遥 · 研究阅读者')]:
             if not db.scalar(select(User).where(User.email==role+'@balance.demo')):db.add(User(email=role+'@balance.demo',name=name,role=role,password_hash=hash_password('Balance2026!')))
         db.commit()
+        versions={}
+        for code,name,current in [('d2010','2010区划',False),('d2019','2019区划',False),('d2026','2026现行区划',True)]:
+            version=db.scalar(select(DivisionVersion).where(DivisionVersion.code==code))
+            if not version:version=DivisionVersion(code=code,name=name,is_current=current);db.add(version);db.flush()
+            versions[code]=version
+        db.commit()
+        ratio_maps={('d2010','d2019'):[('老城','中心',1.0),('城东','东城',.7),('城东','中心',.3),('城西','西城',.9),('城西','中心',.1)],('d2019','d2026'):[('中心','中心',1.0),('东城','东区',.8),('东城','中心',.2),('西城','西区',1.0)]}
+        for (frm,to),rows in ratio_maps.items():
+            edge_exists=db.scalar(select(DivisionRatio).where(DivisionRatio.from_version_id==versions[frm].id,DivisionRatio.to_version_id==versions[to].id))
+            if not edge_exists:
+                for from_zone,to_zone,ratio in rows:db.add(DivisionRatio(from_version_id=versions[frm].id,to_version_id=versions[to].id,from_zone=from_zone,to_zone=to_zone,ratio=ratio,revision=1))
+        db.commit()
         for j,(code,name,n,total) in enumerate([('nov-city','11月城区出行样本',800,10000),('oct-pilot','10月试采对照',400,5000),('west-check','西区补采研究',80,1000)]):
             batch=db.scalar(select(SampleBatch).where(SampleBatch.code==code))
             if not batch:batch=SampleBatch(code=code,name=name,source_file='yy-travel-sample.csv',description='匿名合成出行样本；样本结构与目标边际不同。');db.add(batch);db.flush()
@@ -19,10 +31,12 @@ def seed():
                 c=f'YY{j}-{i+1:04d}';zone=rng.choices(['中心','东区','西区'],[.6,.2,.2])[0];age=rng.choices(['青年','中年','长者'],[.6,.3,.1])[0];mode=rng.choices(['小汽车','公交','轨道'],[.6,.25,.15])[0]
                 minutes=round(max(3,18+{'中心':0,'东区':8,'西区':13}[zone]+{'小汽车':0,'公交':12,'轨道':7}[mode]+rng.gauss(0,5)),2)
                 if c not in existing:db.add(SampleUnit(batch_id=batch.id,code=c,zone=zone,age_band=age,mode=mode,trip_minutes=minutes,base_weight=1))
-            config={'zone':{'中心':.3,'东区':.45,'西区':.25},'age_band':{'青年':.35,'中年':.45,'长者':.2},'mode':{'小汽车':.3,'公交':.35,'轨道':.35}}
-            for dim,margin in config.items():
-                for cat,share in margin.items():
-                    if not db.scalar(select(MarginTarget).where(MarginTarget.batch_id==batch.id,MarginTarget.dimension==dim,MarginTarget.category==cat)):db.add(MarginTarget(batch_id=batch.id,dimension=dim,category=cat,population=total*share))
+            zone_margin={'中心':.3,'东区':.45,'西区':.25} if code!='west-check' else {'中心':.3,'东城':.4,'西城':.3}
+            config={'zone':zone_margin,'age_band':{'青年':.35,'中年':.45,'长者':.2},'mode':{'小汽车':.3,'公交':.35,'轨道':.35}}
+            has_targets=db.scalar(select(MarginTarget).where(MarginTarget.batch_id==batch.id))
+            if not has_targets:
+                for dim,margin in config.items():
+                    for cat,share in margin.items():db.add(MarginTarget(batch_id=batch.id,dimension=dim,category=cat,population=total*share))
         db.commit();user=db.scalar(select(User).where(User.role=='admin'))
         name='城区样本代表性 · 初始校准'
         run=db.scalar(select(WeightRun).where(WeightRun.name==name))
@@ -30,6 +44,6 @@ def seed():
             batch=db.scalar(select(SampleBatch).where(SampleBatch.code=='nov-city'))
             run=WeightRun(name=name,batch_id=batch.id,created_by=user.id,tolerance=.00001,max_iterations=500,cap_ratio=12);db.add(run);db.commit();compute(db,run.id)
             if run.result['converged']:db.add(WeightReview(run_id=run.id,decision='approved',note='合成样本演示：边际已收敛，保留有效样本与方法边界。',reviewer_id=user.id));db.commit()
-        counts={name:db.scalar(select(func.count()).select_from(model)) for name,model in [('users',User),('batches',SampleBatch),('units',SampleUnit),('targets',MarginTarget),('runs',WeightRun),('reviews',WeightReview)]}
+        counts={name:db.scalar(select(func.count()).select_from(model)) for name,model in [('users',User),('batches',SampleBatch),('units',SampleUnit),('targets',MarginTarget),('runs',WeightRun),('reviews',WeightReview),('versions',DivisionVersion),('ratios',DivisionRatio),('drafts',ConversionDraft)]}
         print(counts);return counts
 if __name__=='__main__':seed()

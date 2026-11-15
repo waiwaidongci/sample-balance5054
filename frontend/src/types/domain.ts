@@ -7,3 +7,9 @@ export interface RakingResult{converged:boolean;iterations:number;max_residual:n
 export interface Run{id:number;name:string;batch_id:number;tolerance:number;max_iterations:number;cap_ratio:number;status:string;result:RakingResult|null;error:string|null;created_at:string;batch?:Batch}
 export interface Review{id:number;run_id:number;decision:string;note:string;reviewer_id:number;created_at:string}
 export interface Audit{id:number;actor:string;action:string;target:string;created_at:string}
+export interface DivisionVersion{id:number;code:string;name:string;is_current:boolean;zones:string[]}
+export interface RatioRow{from_zone:string;to_zone:string;ratio:number}
+export interface RatioEdge{from_version_id:number;to_version_id:number;from_code:string;from_name:string;to_code:string;to_name:string;revision:number;rows:RatioRow[];problems:string[]}
+export interface ConversionPayload{source:Record<string,number>;converted:Record<string,number>;matrix:Record<string,Record<string,number>>;paths:number[][];used_edges:[number,number][];source_total:number;converted_total:number}
+export interface ConversionDraft{id:number;batch_id:number;from_version_id:number;to_version_id:number;from_label:string;to_label:string;status:string;payload:ConversionPayload;created_at:string;published_at:string|null}
+export interface ConversionRefusal{message:string;reason:string;involved:{zone?:string;version?:string;from_version?:string;to_version?:string;total?:number}[]}
